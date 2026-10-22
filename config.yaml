@@ -1,0 +1,12 @@
+data_dir: data/raw/synthea          # must contain DATA_PROVENANCE.txt declaring the data synthetic
+graph_path: data/processed/ehr_graph.pkl
+
+retrieval:
+  fuzzy_threshold: 90               # rapidfuzz score (0-100) for linking question words to concepts
+  max_concepts: 5
+  max_facts: 200
+
+llm:
+  model: claude-opus-5-5
+  effort: medium                    # low | medium | high | xhigh | max
+  max_tokens: 16000

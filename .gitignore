@@ -1,0 +1,9 @@
+data/raw/
+data/processed/
+eval/results/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.env
+demo/graphrag_walkthrough.html
+demo/graphrag_walkthrough_offline.html

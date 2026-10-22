@@ -1,0 +1,598 @@
+<title>EHR GraphRAG Walkthrough</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+/* Layout: step rail on the left, one working panel on the right; the rail becomes a scrolling strip on phones. */
+:root {
+  --bg: #F2F5F5; --surface: #FFFFFF; --sunk: #E7EDED; --fg: #14222E; --muted: #55646E; --line: #D2DBDC;
+  --accent: #0B6E79; --accent-soft: #D5EBED;
+  --pass: #1E7A46; --pass-bg: #DCF0E3; --fail: #B42318; --fail-bg: #FBE3E0; --warn: #8A5D00; --warn-bg: #FBEFD0;
+  --k-patient: #1F3A5F; --k-condition: #B8432F; --k-medication: #1E7F5C; --k-procedure: #7A4FB5;
+  --k-lab: #9C720A; --k-vaccine: #2A7FA8; --k-allergen: #B03A78; --k-encounter: #6B7680;
+  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0D151C; --surface: #14202A; --sunk: #1A2732; --fg: #E3EBEE; --muted: #98A9B3; --line: #293945;
+  --accent: #5CC6D0; --accent-soft: #153A40;
+  --pass: #5BCF8A; --pass-bg: #163225; --fail: #FF8B7B; --fail-bg: #3A1D1A; --warn: #F0C35A; --warn-bg: #382C12;
+  --k-patient: #9CC3FF; --k-condition: #FF9A85; --k-medication: #6FD6A8; --k-procedure: #C3A6F5;
+  --k-lab: #F0C35A; --k-vaccine: #7CC7EA; --k-allergen: #F38BC0; --k-encounter: #9AA6B1;
+  color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #0D151C; --surface: #14202A; --sunk: #1A2732; --fg: #E3EBEE; --muted: #98A9B3; --line: #293945;
+  --accent: #5CC6D0; --accent-soft: #153A40;
+  --pass: #5BCF8A; --pass-bg: #163225; --fail: #FF8B7B; --fail-bg: #3A1D1A; --warn: #F0C35A; --warn-bg: #382C12;
+  --k-patient: #9CC3FF; --k-condition: #FF9A85; --k-medication: #6FD6A8; --k-procedure: #C3A6F5;
+  --k-lab: #F0C35A; --k-vaccine: #7CC7EA; --k-allergen: #F38BC0; --k-encounter: #9AA6B1;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 28px 48px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: 2rem; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 1.55rem; font-weight: 600; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+code, .mono { font-family: var(--f-mono); font-size: 0.86em; }
+.eyebrow { font: 600 0.72rem/1 var(--f-body); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+.lede { color: var(--muted); margin-top: 8px; }
+header.top { display: grid; gap: 6px; margin-bottom: 22px; }
+.provenance { display: inline-flex; gap: 8px; align-items: center; font-size: 0.82rem; color: var(--muted); flex-wrap: wrap; }
+.tag { font: 500 0.72rem/1 var(--f-mono); padding: 4px 7px; border-radius: 4px; background: var(--sunk); color: var(--fg); }
+.tag.synthetic { background: var(--pass-bg); color: var(--pass); }
+
+.app { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 28px; align-items: start; }
+nav.steps { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); display: grid; gap: 2px; }
+nav.steps button { all: unset; cursor: pointer; display: grid; grid-template-columns: 28px 1fr; gap: 2px 10px; align-items: baseline;
+  padding: 10px 12px; border-radius: 6px; color: var(--muted); }
+nav.steps button:hover { background: var(--sunk); color: var(--fg); }
+nav.steps button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+nav.steps button[aria-current="step"] { background: var(--surface); color: var(--fg); box-shadow: inset 3px 0 0 var(--accent); }
+nav.steps .n { font: 600 0.9rem/1 var(--f-mono); color: var(--accent); }
+nav.steps .t { font: 600 0.95rem/1.25 var(--f-display); }
+nav.steps .s { grid-column: 2; font-size: 0.78rem; line-height: 1.35; }
+nav.steps .phase { padding: 14px 12px 4px; }
+
+main { min-width: 0; display: grid; gap: 18px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 24px; display: grid; gap: 18px; min-width: 0; }
+.panel > header { display: grid; gap: 8px; }
+.qbar { display: grid; gap: 10px; }
+.qopts { display: flex; flex-wrap: wrap; gap: 8px; }
+.qopt { all: unset; cursor: pointer; padding: 7px 11px; border: 1px solid var(--line); border-radius: 999px; font-size: 0.84rem; background: var(--surface); }
+.qopt:hover { border-color: var(--accent); }
+.qopt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.qopt[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.qopt .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: currentColor; opacity: .5; }
+.question { font: 500 1.15rem/1.45 var(--f-body); padding: 14px 16px; background: var(--sunk); border-radius: 6px; overflow-wrap: anywhere; }
+.question mark { background: none; color: inherit; border-bottom: 2px solid; padding: 0 1px; }
+.question mark.pid { border-color: var(--k-patient); }
+.question mark.pid.missing { border-color: var(--fail); border-bottom-style: dashed; }
+.question mark.cw { border-color: var(--k-condition); }
+
+.footer-nav { display: flex; justify-content: space-between; gap: 12px; }
+.btn { all: unset; cursor: pointer; padding: 9px 16px; border-radius: 6px; font-weight: 600; font-size: 0.9rem; border: 1px solid var(--line); background: var(--surface); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn[disabled] { opacity: .35; pointer-events: none; }
+
+.note { border-left: 3px solid var(--accent); padding: 10px 14px; background: var(--accent-soft); border-radius: 0 6px 6px 0; font-size: 0.92rem; }
+.note.warn { border-color: var(--warn); background: var(--warn-bg); }
+.note.fail { border-color: var(--fail); background: var(--fail-bg); }
+.note b { font-weight: 600; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+.cols > * { min-width: 0; }
+.scroll-x { overflow-x: auto; }
+table { border-collapse: collapse; font-size: 0.84rem; width: 100%; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 0.72rem/1.2 var(--f-body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td .mono { white-space: nowrap; }
+.filecounts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.filecounts div { padding: 10px 12px; background: var(--sunk); border-radius: 6px; display: grid; gap: 2px; }
+.filecounts .f { font: 500 0.8rem var(--f-mono); color: var(--muted); }
+.filecounts .c { font: 600 1.15rem var(--f-display); font-variant-numeric: tabular-nums; }
+.colchips { display: flex; flex-wrap: wrap; gap: 6px; }
+.colchip { font: 500 0.76rem/1 var(--f-mono); padding: 5px 7px; border-radius: 4px; border: 1px solid var(--line); }
+.colchip.kept { border-color: var(--pass); color: var(--pass); background: var(--pass-bg); }
+.colchip.dropped { color: var(--muted); text-decoration: line-through; }
+.legend-inline { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.8rem; color: var(--muted); }
+.legend-inline span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
+
+.transform { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 16px; align-items: center; }
+.rowcard { font: 0.8rem/1.6 var(--f-mono); background: var(--sunk); border-radius: 6px; padding: 12px 14px; overflow-x: auto; }
+.rowcard .k { color: var(--muted); }
+.rowcard .hl { color: var(--k-medication); font-weight: 500; }
+.rowcard .hl2 { color: var(--k-condition); font-weight: 500; }
+.rowcard .hl3 { color: var(--k-patient); font-weight: 500; }
+.arrow { font: 600 1.4rem var(--f-display); color: var(--accent); text-align: center; }
+svg text { font-family: var(--f-body); }
+.diagram { width: 100%; height: auto; display: block; }
+
+.node-chip { font: 500 0.78rem/1.3 var(--f-mono); padding: 1px 6px; border-radius: 4px; background: var(--sunk); border-left: 3px solid var(--c, var(--muted)); white-space: nowrap; }
+.linkcols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.linkbox { border: 1px solid var(--line); border-radius: 6px; padding: 14px; display: grid; gap: 10px; align-content: start; }
+.linkbox ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.linkbox li { display: grid; gap: 2px; }
+.linkbox .nm { font-weight: 500; }
+.empty { color: var(--muted); font-style: italic; font-size: 0.9rem; }
+.status { font: 600 0.7rem/1 var(--f-body); letter-spacing: .06em; text-transform: uppercase; padding: 4px 7px; border-radius: 4px; justify-self: start; }
+.status.ok { background: var(--pass-bg); color: var(--pass); }
+.status.bad { background: var(--fail-bg); color: var(--fail); }
+
+.split { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.graphbox { position: relative; background: var(--sunk); border-radius: 8px; min-width: 0; }
+.graphbox svg { width: 100%; height: auto; display: block; }
+.graphbox .tip { position: absolute; left: 10px; bottom: 10px; right: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
+  padding: 8px 10px; font-size: 0.82rem; pointer-events: none; }
+.g-edge { stroke: var(--line); stroke-width: 1; }
+.g-edge.derived { stroke-dasharray: 3 3; }
+.g-edge.missing { stroke: var(--fail); stroke-width: 1.6; stroke-dasharray: 5 4; }
+.g-node { cursor: pointer; transition: opacity .15s; }
+.g-node circle { stroke: var(--surface); stroke-width: 1.5; }
+.g-node.center circle { stroke: var(--fg); stroke-width: 2; }
+.g-node.ghost circle { fill: var(--surface) !important; stroke: var(--fail); stroke-dasharray: 4 3; stroke-width: 2; }
+.g-label { font-size: 10.5px; fill: var(--fg); pointer-events: none; paint-order: stroke; stroke: var(--sunk); stroke-width: 3px; stroke-linejoin: round; }
+.g-label.center { font-weight: 600; font-size: 12px; }
+svg.dim .g-node:not(.on) { opacity: .12; }
+svg.dim .g-edge:not(.on) { opacity: .1; }
+svg.dim .g-label:not(.on) { opacity: 0; }
+.g-edge.on { stroke: var(--fg); stroke-width: 1.4; }
+.facts { list-style: none; margin: 0; padding: 0; max-height: 560px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.facts li { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 6px; padding: 7px 10px; border-bottom: 1px solid var(--line); font-size: 0.83rem; cursor: default; }
+.facts li:last-child { border-bottom: 0; }
+.facts li:hover, .facts li:focus-visible, .facts li.on { background: var(--accent-soft); outline: none; }
+.facts li.check { background: var(--warn-bg); }
+.facts .fid { font: 600 0.78rem var(--f-mono); color: var(--accent); }
+.facts .ft { overflow-wrap: anywhere; }
+.facts .nid { font: 500 0.74rem var(--f-mono); padding: 0 4px; border-radius: 3px; background: var(--sunk); border-left: 2px solid var(--c, var(--muted)); }
+.stats-line { display: flex; gap: 18px; flex-wrap: wrap; font-size: 0.85rem; color: var(--muted); }
+.stats-line b { color: var(--fg); font: 600 1rem var(--f-display); font-variant-numeric: tabular-nums; }
+
+pre.prompt { margin: 0; font: 0.78rem/1.55 var(--f-mono); background: var(--sunk); border-radius: 6px; padding: 14px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 380px; overflow: auto; }
+.msg { display: grid; gap: 6px; }
+.msg-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.params { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.evsum { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.evsum div { padding: 10px 12px; border-radius: 6px; background: var(--sunk); display: grid; gap: 4px; }
+.evsum .lbl { font-size: 0.78rem; color: var(--muted); }
+.evsum .val { font: 600 1.05rem var(--f-display); font-variant-numeric: tabular-nums; }
+.evsum .val.ok { color: var(--pass); } .evsum .val.bad { color: var(--fail); }
+.pill { font: 600 0.7rem/1 var(--f-body); padding: 3px 6px; border-radius: 3px; letter-spacing: .05em; }
+.pill.pass { background: var(--pass-bg); color: var(--pass); }
+.pill.fail { background: var(--fail-bg); color: var(--fail); }
+.pill.pos { background: var(--sunk); color: var(--fg); }
+.pill.neg { background: var(--sunk); color: var(--muted); }
+tr.failrow td { background: var(--fail-bg); }
+.toggle { display: inline-flex; gap: 8px; align-items: center; font-size: 0.85rem; cursor: pointer; }
+.checklist { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: 0.92rem; max-width: 70ch; }
+
+@media (max-width: 860px) {
+  .app { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  nav.steps { position: static; display: flex; overflow-x: auto; gap: 6px; padding-bottom: 4px; }
+  nav.steps button { grid-template-columns: auto auto; flex: 0 0 auto; padding: 8px 10px; background: var(--surface); border: 1px solid var(--line); }
+  nav.steps button[aria-current="step"] { box-shadow: inset 0 -3px 0 var(--accent); }
+  nav.steps .s, nav.steps .phase { display: none; }
+  .split { grid-template-columns: minmax(0, 1fr); }
+  .transform { grid-template-columns: minmax(0, 1fr); }
+  .arrow { transform: rotate(90deg); }
+  .panel { padding: 18px; }
+  h1 { font-size: 1.6rem; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <span class="eyebrow">EHR GraphRAG · v0 pipeline</span>
+    <h1>From health records to a cited answer, step by step</h1>
+    <p class="lede">Each step shows what the project code actually produced on the Synthea sample. Nothing on this page is mocked up: rows, graph, facts, prompt and control results were exported from the pipeline run on <span class="mono" id="rundate"></span>.</p>
+    <div class="provenance"><span class="tag synthetic">synthetic data only</span><span class="tag">111 Synthea patients</span><span class="tag">networkx graph</span><span class="tag" id="modeltag"></span></div>
+  </header>
+
+  <div class="app">
+    <nav class="steps" id="steps" aria-label="Pipeline steps"></nav>
+    <main>
+      <section class="panel" id="qpanel" hidden>
+        <div class="qbar">
+          <span class="eyebrow">Pick a question to follow through steps 4–7</span>
+          <div class="qopts" id="qopts" role="group" aria-label="Example questions"></div>
+          <div class="question" id="qtext"></div>
+        </div>
+      </section>
+      <section class="panel" id="content" aria-live="polite"></section>
+      <div class="footer-nav">
+        <button class="btn" id="prev" type="button">← Back</button>
+        <button class="btn primary" id="next" type="button">Next step →</button>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const D = JSON.parse(document.getElementById("data").textContent);
+const KINDS = ["patient", "condition", "medication", "procedure", "lab", "vaccine", "allergen", "encounter"];
+const kc = k => `var(--k-${KINDS.includes(k) ? k : "encounter"})`;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const short = id => id.startsWith("patient:") ? "patient:" + id.slice(8, 16) + "…" : id;
+const fmt = n => Number(n).toLocaleString("en-US");
+
+const STEPS = [
+  { t: "Raw records", s: "Synthea CSV exports", phase: "Build the graph (once)" },
+  { t: "Rows become edges", s: "Nodes keyed by code" },
+  { t: "Knowledge edges", s: "Aggregated across patients" },
+  { t: "Link the question", s: "Regex + fuzzy match", phase: "Answer a question (each time)" },
+  { t: "Retrieve facts", s: "Subgraph → numbered facts" },
+  { t: "Build the prompt", s: "What Claude receives" },
+  { t: "Answer & controls", s: "How we check it" },
+];
+
+const NOTES = {
+  link: {
+    patient: ["ok", "Only the patient ID is linked. Generic words like <i>disorders</i> are on a stopword list. Before a fix on Oct 22, the plural <i>disorders</i> fuzzy-matched five unrelated concepts (Seizure disorder, PTSD and others). The controls did not catch that bug, because extra facts never lower recall."],
+    knowledge: ["ok", "<i>bronchitis</i> links Acute bronchitis and also Chronic obstructive bronchitis. The extra concept adds facts the model has to ignore. It does not hide the right one."],
+    cohort: ["ok", "One clean match. The cohort count is just the number of patient edges pointing into this node."],
+    absent: ["ok", "<i>hypertension</i> links the condition and also the procedure <i>Referral to hypertension clinic</i>. Because a patient and a concept are both named, the retriever adds a RECORD CHECK fact for each pair."],
+    unknown: ["ok", "The ID has a valid format but is not in the graph. The retriever writes that down as a fact, so the model can cite it instead of guessing."],
+    fake: ["fail", "<b>Known failure.</b> <i>Zorblaxian</i> matches nothing, but <i>fever</i> matches the real concept <i>Fever</i>. Retrieval now returns facts about a different disease, and only the model can catch the mismatch."],
+  },
+  facts: {
+    patient: "A patient question pulls the patient's whole one-hop neighbourhood: demographics, conditions, medications, latest labs, the 25 most recent procedures, vaccines and the last 5 encounters.",
+    knowledge: "A concept question uses the cross-patient edges: TREATS, INDICATED_FOR and co-occurring conditions. Co-occurrence is dominated by social findings such as <i>Medication review due</i>, which is a weakness to fix.",
+    cohort: "The patient count and patient list come from edges into the concept node. Co-occurring conditions are computed from those patients' other edges.",
+    absent: "RECORD CHECK facts go first, so the 200-fact cap can never cut them off. The full patient record follows.",
+    unknown: "A single fact. There is nothing else to retrieve, and that is the correct result.",
+    fake: "Every fact here describes <i>Fever</i>, not the invented disease. Hover the first fact to see the wrongly linked node.",
+  },
+  answer: {
+    patient: { expect: ["Say this patient has <b>no active disorders</b>. In the raw data, all four active conditions are SNOMED <i>findings</i> (Unemployed, Normal pregnancy, …), not disorders."],
+      warn: "The graph builder strips the “(finding)” / “(disorder)” tag from names, so the facts cannot tell the two apart. Even a perfect model can't answer this correctly from these facts. The fix belongs in the graph: keep the semantic tag as a node attribute." },
+    knowledge: { expect: ["List Acetaminophen 325 MG and the Acetaminophen / Dextromethorphan / doxylamine solution, citing the TREATS facts.", "Say these are documented in the synthetic records, not clinical recommendations."] },
+    cohort: { expect: ["Answer <b>7</b>, citing the cohort-size fact."] },
+    absent: { expect: ["Answer <b>no</b>, citing the RECORD CHECK fact for Essential hypertension."] },
+    unknown: { expect: ["Say the patient is <b>not found</b>, citing the RECORD CHECK fact. List no medications."] },
+    fake: { expect: ["Say <b>Zorblaxian fever is not in the record</b> and that the facts describe plain Fever instead. Answering “14” would be a hallucination caused by retrieval."] },
+  },
+};
+
+let state = { step: 0, q: 0 };
+try { const s = JSON.parse(localStorage.getItem("graphrag-demo") || "{}"); if (Number.isInteger(s.step) && s.step >= 0 && s.step < 7 && s.q >= 0 && s.q < D.questions.length) state = { step: s.step, q: s.q }; } catch (e) {}
+const save = () => { try { localStorage.setItem("graphrag-demo", JSON.stringify(state)); } catch (e) {} };
+
+// ---------- shell ----------
+function renderNav() {
+  const nav = document.getElementById("steps");
+  nav.innerHTML = STEPS.map((s, i) =>
+    (s.phase ? `<div class="phase eyebrow">${s.phase}</div>` : "") +
+    `<button type="button" data-i="${i}" ${i === state.step ? 'aria-current="step"' : ""}>
+       <span class="n">${i + 1}</span><span class="t">${s.t}</span><span class="s">${s.s}</span></button>`).join("");
+  nav.querySelectorAll("button").forEach(b => b.onclick = () => go(+b.dataset.i));
+}
+function renderQuestionBar() {
+  const show = state.step >= 3;
+  document.getElementById("qpanel").hidden = !show;
+  if (!show) return;
+  document.getElementById("qopts").innerHTML = D.questions.map((q, i) =>
+    `<button class="qopt" type="button" aria-pressed="${i === state.q}" data-i="${i}"><span class="dot"></span>${esc(q.label)}</button>`).join("");
+  document.querySelectorAll(".qopt").forEach(b => b.onclick = () => { state.q = +b.dataset.i; save(); render(); });
+  document.getElementById("qtext").innerHTML = highlightQuestion(D.questions[state.q]);
+}
+function highlightQuestion(q) {
+  const missing = new Set(q.missing_patients.map(p => p.slice(8)));
+  const words = new Set(q.linked_concepts.flatMap(c => c.name.toLowerCase().match(/[a-z]{4,}/g) || []));
+  return esc(q.question)
+    .replace(/\b[A-Za-z]{4,}\b/g, w => words.has(w.toLowerCase()) ? `<mark class="cw" title="word shared with a linked concept">${w}</mark>` : w)
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,
+      m => `<mark class="pid ${missing.has(m.toLowerCase()) ? "missing" : ""}" title="${missing.has(m.toLowerCase()) ? "patient ID not in graph" : "linked patient"}">${m}</mark>`);
+}
+function go(i) {
+  state.step = Math.max(0, Math.min(STEPS.length - 1, i)); save(); render();
+  document.getElementById("content").scrollIntoView({ block: "nearest" });
+}
+function render() {
+  renderNav(); renderQuestionBar();
+  const el = document.getElementById("content");
+  el.innerHTML = [step1, step2, step3, step4, step5, step6, step7][state.step]();
+  after[state.step]?.(el);
+  document.getElementById("prev").disabled = state.step === 0;
+  const next = document.getElementById("next");
+  next.disabled = state.step === STEPS.length - 1;
+  next.textContent = state.step < STEPS.length - 1 ? `Next: ${STEPS[state.step + 1].t} →` : "Done";
+}
+document.getElementById("prev").onclick = () => go(state.step - 1);
+document.getElementById("next").onclick = () => go(state.step + 1);
+document.addEventListener("keydown", e => {
+  if (e.target.closest("input, textarea")) return;
+  if (e.key === "ArrowRight") go(state.step + 1);
+  if (e.key === "ArrowLeft") go(state.step - 1);
+});
+const head = (n, title, lede) => `<header><span class="eyebrow">Step ${n} of ${STEPS.length}</span><h2>${title}</h2><p class="lede">${lede}</p></header>`;
+
+// ---------- step 1: raw records ----------
+function step1() {
+  const r = D.raw, pid = r.patient_row.Id;
+  const counts = Object.entries(r.row_counts).map(([f, c]) => `<div><span class="f">${f}.csv</span><span class="c">${fmt(c)}</span></div>`).join("");
+  const cols = r.patient_columns.map(c => `<span class="colchip ${c.kept ? "kept" : "dropped"}" title="${c.kept ? "loaded" : "never read"}">${c.col}</span>`).join("");
+  const tbl = (rows, cols) => `<div class="scroll-x"><table><thead><tr>${cols.map(c => `<th>${c}</th>`).join("")}</tr></thead><tbody>${
+    rows.map(row => `<tr>${cols.map(c => `<td>${c === "PATIENT" ? `<span class="mono">${row[c].slice(0, 8)}…</span>` : /START|STOP/.test(c) ? `<span class="mono">${esc(row[c].slice(0, 10)) || "—"}</span>` : /CODE/.test(c) ? `<span class="mono">${esc(row[c])}</span>` : esc(row[c])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  return head(1, "Start from raw, synthetic records",
+    "Synthea writes one CSV per record type. Each row is one event in one patient's history, coded with standard vocabularies: SNOMED CT for conditions and procedures, RxNorm for drugs, LOINC for labs.") + `
+  <div class="filecounts">${counts}</div>
+  <div class="cols">
+    <div style="display:grid;gap:10px;align-content:start">
+      <h3>patients.csv: what gets read</h3>
+      <div class="colchips">${cols}</div>
+      <p class="lede" style="font-size:.88rem">Names, SSN, passport, address and coordinates are never loaded, even though this data is synthetic. If the pipeline is ever pointed at a different export, it stays minimal by default.</p>
+    </div>
+    <div class="note"><b>Data policy.</b> The folder carries a <code>DATA_PROVENANCE.txt</code> that declares the data synthetic. The answer step refuses to call the model without it. No real patient data goes to an AI service.</div>
+  </div>
+  <div style="display:grid;gap:8px"><h3>conditions.csv: latest rows for patient <span class="mono">${pid.slice(0, 8)}…</span></h3>${tbl(r.conditions, ["START", "STOP", "PATIENT", "CODE", "DESCRIPTION"])}</div>
+  <div style="display:grid;gap:8px"><h3>medications.csv: rows that carry a reason code</h3>${tbl(r.medications, ["START", "STOP", "CODE", "DESCRIPTION", "REASONCODE", "REASONDESCRIPTION"])}
+  <p class="lede" style="font-size:.88rem">An empty STOP means the condition or prescription is still active. REASONCODE links a prescription to the condition it was written for, and step 3 builds on it.</p></div>`;
+}
+
+// ---------- step 2: rows -> edges ----------
+function step2() {
+  const m = D.raw.medications.find(x => x.CODE === "313782") || D.raw.medications[0];
+  const S = D.stats;
+  return head(2, "Every row becomes an edge",
+    "Patients and coded concepts become nodes. Each CSV row becomes one edge from the patient to the concept, and the row's dates and reason ride along as edge attributes.") + `
+  <div class="transform">
+    <div class="rowcard"><div class="k">medications.csv</div>
+      START <span class="k">=</span> ${m.START.slice(0, 10)}<br>STOP <span class="k">=</span> ${m.STOP.slice(0, 10) || "—"}<br>
+      PATIENT <span class="k">=</span> <span class="hl3">${m.PATIENT.slice(0, 8)}…</span><br>CODE <span class="k">=</span> <span class="hl">${m.CODE}</span><br>
+      DESCRIPTION <span class="k">=</span> ${esc(m.DESCRIPTION)}<br>REASONDESCRIPTION <span class="k">=</span> <span class="hl2">${esc(m.REASONDESCRIPTION)}</span></div>
+    <div class="arrow" aria-hidden="true">→</div>
+    <div class="rowcard"><div class="k">graph edge</div>
+      <span class="hl3">patient:${m.PATIENT.slice(0, 8)}…</span><br>&nbsp;&nbsp;─TAKES_MEDICATION→<br><span class="hl">medication:${m.CODE}</span><br>
+      <span class="k">{ start: ${m.START.slice(0, 10)}, stop: ${m.STOP.slice(0, 10) || "—"},<br>&nbsp;&nbsp;status: ${m.STOP ? "resolved" : "active"}, reason: "${esc(m.REASONDESCRIPTION.replace(/ \(.*\)$/, ""))}" }</span></div>
+  </div>
+  <div class="note"><b>Why this is a graph and not a table.</b> Concept nodes are keyed by their code. Every patient who was prescribed RxNorm ${m.CODE} points to the <i>same</i> node, so one hop from a drug reaches all its patients, and one more hop reaches their other conditions.</div>
+  <div style="display:grid;gap:10px">
+    <h3>The resulting schema, with real counts</h3>
+    ${schemaSVG(S)}
+    <p class="lede" style="font-size:.88rem">Edge counts match CSV row counts exactly. <code>tests/test_graph.py</code> checks this on every build. Observations are the exception: only the latest value per patient and test is kept, as HAS_RESULT.</p>
+  </div>`;
+}
+function schemaSVG(S) {
+  const W = 760, H = 380, cx = 380, cy = 190;
+  const items = [
+    ["condition", "HAS_CONDITION"], ["medication", "TAKES_MEDICATION"], ["procedure", "UNDERWENT"], ["lab", "HAS_RESULT"],
+    ["vaccine", "RECEIVED"], ["allergen", "ALLERGIC_TO"], ["encounter", "HAS_ENCOUNTER"]];
+  const pos = items.map((_, i) => { const a = -Math.PI / 2 + (i * 2 * Math.PI) / items.length; return [cx + Math.cos(a) * 285, cy + Math.sin(a) * 148]; });
+  let g = "";
+  items.forEach(([k, rel], i) => {
+    const [x, y] = pos[i], mx = (cx + x) / 2, my = (cy + y) / 2;
+    g += `<line style="stroke:var(--line)" x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke-width="1.5"/>
+      <text x="${mx}" y="${my - 4}" text-anchor="middle" font-size="10" style="fill:var(--muted);paint-order:stroke;stroke:var(--surface);stroke-width:4px">${rel}</text>
+      <text x="${mx}" y="${my + 9}" text-anchor="middle" font-size="10" font-weight="600" style="fill:var(--fg);paint-order:stroke;stroke:var(--surface);stroke-width:4px">${fmt(S.edges[rel])}</text>`;
+  });
+  items.forEach(([k], i) => {
+    const [x, y] = pos[i];
+    g += `<circle style="fill:${kc(k)}" cx="${x}" cy="${y}" r="9"/>
+      <text x="${x}" y="${y + (y > cy ? 24 : -15)}" text-anchor="middle" font-size="12.5" font-weight="600" style="fill:var(--fg)">${k}</text>
+      <text x="${x}" y="${y + (y > cy ? 38 : -29)}" text-anchor="middle" font-size="10.5" style="fill:var(--muted)">${fmt(S.nodes[k])} nodes</text>`;
+  });
+  g += `<circle style="fill:var(--k-patient)" cx="${cx}" cy="${cy}" r="15"/><text x="${cx}" y="${cy + 33}" text-anchor="middle" font-size="13" font-weight="600" style="fill:var(--fg);paint-order:stroke;stroke:var(--surface);stroke-width:4px">patient · ${S.nodes.patient}</text>`;
+  return `<div class="scroll-x"><svg class="diagram" viewBox="0 0 ${W} ${H}" role="img" aria-label="Graph schema: patient connected to seven concept types" style="min-width:560px">${g}</svg></div>`;
+}
+
+// ---------- step 3: knowledge edges ----------
+function step3() {
+  const t = D.raw.treats_example, S = D.stats;
+  const W = 760, H = 250, px = 90, mx = 400, cxp = 650;
+  let g = "";
+  const shown = 9;
+  for (let i = 0; i < shown; i++) {
+    const y = 30 + i * 24;
+    g += `<line style="stroke:var(--line)" x1="${px + 8}" y1="${y}" x2="${mx - 16}" y2="125"/>
+      <circle style="fill:var(--k-patient)" cx="${px}" cy="${y}" r="6"/>`;
+  }
+  g += `<text style="fill:var(--muted)" x="${px - 14}" y="${30 + shown * 24 + 4}" font-size="11">… ${t.n_patients} patients total</text>
+    <text style="fill:var(--muted)" x="${px}" y="16" text-anchor="middle" font-size="11">TAKES_MEDICATION</text>
+    <text style="fill:var(--muted)" x="${px}" y="4" text-anchor="middle" font-size="10">reason = Acute bronchitis</text>
+    <line style="stroke:var(--k-medication)" x1="${mx + 16}" y1="125" x2="${cxp - 18}" y2="125" stroke-width="${Math.min(10, 2 + t.n_patients / 4)}" stroke-linecap="round" opacity=".55"/>
+    <text style="fill:var(--fg)" x="${(mx + cxp) / 2}" y="110" text-anchor="middle" font-size="12" font-weight="600">TREATS</text>
+    <text style="fill:var(--muted)" x="${(mx + cxp) / 2}" y="148" text-anchor="middle" font-size="11">n_patients = ${t.n_patients}</text>
+    <circle style="fill:var(--k-medication)" cx="${mx}" cy="125" r="15"/><text style="fill:var(--fg)" x="${mx}" y="166" text-anchor="middle" font-size="12" font-weight="600">Acetaminophen 325 MG</text>
+    <text style="fill:var(--muted)" x="${mx}" y="181" text-anchor="middle" font-size="10">${t.med.id}</text>
+    <circle style="fill:var(--k-condition)" cx="${cxp}" cy="125" r="15"/><text style="fill:var(--fg)" x="${cxp}" y="166" text-anchor="middle" font-size="12" font-weight="600">${esc(t.cond.name)}</text>
+    <text style="fill:var(--muted)" x="${cxp}" y="181" text-anchor="middle" font-size="10">${t.cond.id}</text>`;
+  return head(3, "Aggregate knowledge edges across patients",
+    "Many prescriptions and procedures carry a REASONCODE. The builder groups them by drug and reason, and adds one concept-to-concept edge that records how many distinct patients support it.") + `
+  <div class="scroll-x"><svg class="diagram" viewBox="0 0 ${W} ${H}" role="img" aria-label="${t.n_patients} patients' prescriptions aggregate into one TREATS edge" style="min-width:560px">${g}</svg></div>
+  <div class="cols">
+    <div class="evsum" style="grid-template-columns:1fr 1fr">
+      <div><span class="lbl">medication → TREATS → condition</span><span class="val">${fmt(S.edges.TREATS)} edges</span></div>
+      <div><span class="lbl">procedure → INDICATED_FOR → condition</span><span class="val">${fmt(S.edges.INDICATED_FOR)} edges</span></div>
+    </div>
+    <div class="note warn"><b>Read these edges carefully.</b> They summarise what the synthetic records document. They are not clinical guidance and not drawn from a drug knowledge base. On real data they would reflect local prescribing habits, including mistakes.</div>
+  </div>
+  <p>This layer is what makes the system <i>Graph</i>RAG rather than lookup. A question about a disease can be answered from relationships that no single patient record states.</p>`;
+}
+
+// ---------- step 4: linking ----------
+function step4() {
+  const q = D.questions[state.q], [tone, note] = NOTES.link[q.key];
+  const pats = q.linked_patients.map(p => `<li><span class="status ok">found</span><span class="node-chip" style="--c:${kc("patient")}">${short(p)}</span></li>`)
+    .concat(q.missing_patients.map(p => `<li><span class="status bad">not in graph</span><span class="node-chip" style="--c:var(--fail)">${short(p)}</span></li>`));
+  const cons = q.linked_concepts.map(c => `<li><span class="nm">${esc(c.name)}</span><span class="node-chip" style="--c:${kc(c.kind)}">${c.id}</span></li>`);
+  return head(4, "Link the question to graph nodes",
+    `No LLM is used here. Patient IDs are found with a UUID pattern. Concept names are matched with fuzzy string matching (rapidfuzz, score ≥ ${D.fuzzy_threshold}) against all ${fmt(D.stats.nodes.condition + D.stats.nodes.medication + D.stats.nodes.procedure + D.stats.nodes.lab + D.stats.nodes.vaccine + D.stats.nodes.allergen)} concept names, keeping the top 5.`) + `
+  <div class="linkcols">
+    <div class="linkbox"><h3>Patients · UUID pattern</h3>${pats.length ? `<ul>${pats.join("")}</ul>` : `<p class="empty">No patient ID in the question.</p>`}</div>
+    <div class="linkbox"><h3>Concepts · fuzzy match</h3>${cons.length ? `<ul>${cons.join("")}</ul>` : `<p class="empty">No concept passed the threshold.</p>`}</div>
+  </div>
+  <div class="note ${tone === "fail" ? "fail" : ""}">${note}</div>
+  <p class="lede" style="font-size:.88rem">Underlines in the question above mark the patient ID and the words it shares with linked concept names. A dashed red underline marks an ID that is not in the graph.</p>`;
+}
+
+// ---------- step 5: subgraph + facts ----------
+function step5() {
+  const q = D.questions[state.q], g = q.graph;
+  const facts = q.facts.map((f, i) => `<li tabindex="0" data-i="${i}" class="${f.startsWith("RECORD CHECK") ? "check" : ""}"><span class="fid">F${i + 1}</span><span class="ft">${factHTML(f)}</span></li>`).join("");
+  const kindsPresent = KINDS.filter(k => g.nodes.some(n => n.kind === k));
+  return head(5, "Retrieve the subgraph and write it down as facts",
+    "The retriever walks one or two hops out from the linked nodes and turns each edge into one numbered sentence. The model will see only these sentences, and it must cite them by number.") + `
+  <div class="stats-line"><span><b>${g.nodes.length}</b> nodes in view</span><span><b>${q.facts.length}</b> facts</span><span>cap: 200 facts</span></div>
+  <div class="split">
+    <div class="graphbox"><svg id="gsvg" role="img" aria-label="Retrieved subgraph"></svg><div class="tip" id="gtip" hidden></div></div>
+    <div style="display:grid;gap:8px;min-width:0"><ol class="facts" id="facts">${facts}</ol>
+      <p class="lede" style="font-size:.82rem">Hover or tab to a fact to light up its nodes. Hover a node to find its facts.</p></div>
+  </div>
+  <div class="legend-inline">${kindsPresent.map(k => `<span style="--c:${kc(k)}">${k}</span>`).join("")}<span style="--c:var(--fail)">no record / not in graph</span></div>
+  <div class="note">${NOTES.facts[q.key]}</div>`;
+}
+function factHTML(f) {
+  return esc(f).replace(/\[?((patient|condition|medication|procedure|allergen|vaccine|lab|encounter):[\w.-]+?)\]?(?=[\s.,:;)]|$)/g,
+    (m, id, k) => `<span class="nid" style="--c:${kc(k)}" title="${id}">${short(id)}</span>`);
+}
+function layout(g) {
+  const W = 800, H = 620, cx = W / 2, cy = H / 2;
+  const pos = {};
+  const centers = g.nodes.filter(n => n.center);
+  centers.forEach((n, i) => { pos[n.id] = [cx + (i - (centers.length - 1) / 2) * 120, cy]; n.ci = i; });
+  const rest = g.nodes.filter(n => !n.center);
+  const groups = KINDS.map(k => rest.filter(n => n.kind === k)).filter(a => a.length);
+  const total = rest.length, gapA = groups.length > 1 ? 0.12 : 0;
+  let a0 = -Math.PI / 2;
+  const span = 2 * Math.PI - gapA * groups.length;
+  for (const grp of groups) {
+    const share = span * grp.length / total;
+    const outer = grp[0].kind === "patient";
+    grp.forEach((n, i) => {
+      const a = a0 + share * (i + 0.5) / grp.length;
+      const r = (outer ? 255 : 175) + (grp.length > 14 ? (i % 2 ? 24 : -8) : 0);
+      pos[n.id] = [cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.86];
+    });
+    a0 += share + gapA;
+  }
+  return { pos, W, H, cx, cy };
+}
+function drawGraph(el) {
+  const q = D.questions[state.q], g = q.graph, svg = el.querySelector("#gsvg"), tip = el.querySelector("#gtip");
+  const { pos, W, H, cx } = layout(g);
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const small = g.nodes.length <= 30;
+  let edges = "", nodes = "";
+  g.edges.forEach((e, i) => {
+    const a = pos[e.s], b = pos[e.t]; if (!a || !b) return;
+    edges += `<line class="g-edge ${e.missing ? "missing" : ""} ${e.derived ? "derived" : ""}" data-s="${e.s}" data-t="${e.t}" x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}"/>`;
+  });
+  g.nodes.forEach(n => {
+    const [x, y] = pos[n.id], r = n.center ? 13 : n.kind === "patient" ? 4.5 : 6;
+    const right = x >= cx, lx = n.center ? x : x + (right ? 9 : -9), ly = n.center ? y + (n.ci % 2 ? -22 : 30) : y + 3.5;
+    const label = n.center ? (n.missing ? "not in graph" : n.kind === "patient" ? short(n.id) : n.name) : n.name;
+    const showLabel = n.center || (small && n.kind !== "patient");
+    nodes += `<g class="g-node ${n.center ? "center" : ""} ${n.missing ? "ghost" : ""}" data-id="${n.id}" tabindex="-1">
+      <circle style="fill:${kc(n.kind)}" cx="${x}" cy="${y}" r="${r}"/></g>
+      <text class="g-label ${n.center ? "center" : ""}" data-id="${n.id}" x="${lx}" y="${ly}" text-anchor="${n.center ? "middle" : right ? "start" : "end"}" ${showLabel ? "" : 'visibility="hidden"'}>${esc(label.length > 26 ? label.slice(0, 25) + "…" : label)}</text>`;
+  });
+  svg.innerHTML = edges + nodes;
+
+  const factNodes = q.fact_nodes.map(ids => new Set(ids.map(id => id.startsWith("encounter:") ? "encounters" : id)));
+  const lis = [...el.querySelectorAll("#facts li")];
+  function light(ids, fromFact) {
+    if (!ids || !ids.size) return clear();
+    svg.classList.add("dim");
+    svg.querySelectorAll(".g-node, .g-label").forEach(n => {
+      const on = ids.has(n.dataset.id);
+      n.classList.toggle("on", on);
+      if (n.tagName === "text") n.setAttribute("visibility", on || n.classList.contains("center") || (small && !n.dataset.id.startsWith("patient:")) ? "visible" : "hidden");
+    });
+    svg.querySelectorAll(".g-edge").forEach(e => e.classList.toggle("on", ids.has(e.dataset.s) && ids.has(e.dataset.t) || (ids.size === 1 && (ids.has(e.dataset.s) || ids.has(e.dataset.t)))));
+    if (!fromFact) lis.forEach((li, i) => li.classList.toggle("on", [...ids].some(id => factNodes[i].has(id))));
+  }
+  function clear() {
+    svg.classList.remove("dim");
+    svg.querySelectorAll(".on").forEach(n => n.classList.remove("on"));
+    svg.querySelectorAll(".g-label").forEach(t => t.setAttribute("visibility", t.classList.contains("center") || (small && !t.dataset.id.startsWith("patient:")) ? "visible" : "hidden"));
+    lis.forEach(li => li.classList.remove("on"));
+    tip.hidden = true;
+  }
+  lis.forEach((li, i) => {
+    const on = () => light(factNodes[i], true), off = clear;
+    li.addEventListener("mouseenter", on); li.addEventListener("focus", on);
+    li.addEventListener("mouseleave", off); li.addEventListener("blur", off);
+  });
+  const byId = Object.fromEntries(g.nodes.map(n => [n.id, n]));
+  svg.querySelectorAll(".g-node").forEach(gn => {
+    gn.addEventListener("mouseenter", () => {
+      const n = byId[gn.dataset.id], ids = new Set([n.id]);
+      light(ids, false);
+      const nf = lis.filter(li => li.classList.contains("on")).length;
+      tip.hidden = false;
+      tip.innerHTML = `<b>${esc(n.missing ? "Patient not in graph" : n.name)}</b> <span class="node-chip" style="--c:${kc(n.kind)}">${esc(short(n.id))}</span><br><span style="color:var(--muted)">${n.kind} · cited in ${nf} fact${nf === 1 ? "" : "s"}</span>`;
+      const first = lis.find(li => li.classList.contains("on"));
+      if (first) first.scrollIntoView({ block: "nearest" });
+    });
+    gn.addEventListener("mouseleave", clear);
+  });
+}
+
+// ---------- step 6: prompt ----------
+function step6() {
+  const q = D.questions[state.q];
+  return head(6, "Assemble the prompt",
+    "One API call. The system prompt fixes the rules, and the user message carries the numbered facts and the question. Below is the exact text the pipeline sends for this question.") + `
+  <div class="params"><span class="tag">model: ${D.model}</span><span class="tag">effort: medium</span><span class="tag">fallbacks: default</span><span class="tag">≈ ${fmt(Math.round((D.system_prompt.length + q.prompt_user.length) / 4))} tokens in</span></div>
+  <div class="msg"><div class="msg-head"><h3>System prompt</h3><span class="eyebrow">same for every question</span></div><pre class="prompt">${esc(D.system_prompt)}</pre></div>
+  <div class="msg"><div class="msg-head"><h3>User message</h3><span class="eyebrow">${q.facts.length} facts + question</span></div><pre class="prompt">${esc(q.prompt_user)}</pre></div>
+  <div class="note">The rules carry the grounding: use only these facts, cite them as [F#], and say “Not found in the record” when they are not enough. Retrieval decides <i>what</i> the model can know. The prompt decides <i>how</i> it must behave when that is not enough.</div>`;
+}
+
+// ---------- step 7: answer + controls ----------
+function step7() {
+  const q = D.questions[state.q], a = NOTES.answer[q.key];
+  const ev = D.evals, pass = ev.filter(e => e.pass).length;
+  const types = [...new Set(ev.map(e => e.type))];
+  const rows = types.map(t => { const xs = ev.filter(e => e.type === t); return { t, pol: xs[0].polarity, ok: xs.filter(e => e.pass).length, n: xs.length }; });
+  return head(7, "Answer, then check it with controls",
+    "The last step sends the prompt to Claude. Whether that answer can be trusted is decided by controls: questions whose true answers are computed straight from the CSVs, without going through the graph code.") + `
+  <div class="note warn"><b>Claude has not answered yet.</b> This machine has no API key configured, so the answer step has not been run and no model output is shown. Once a key is set, run <code>python eval/run_eval.py --mode llm</code>.</div>
+  <div class="cols">
+    <div style="display:grid;gap:8px;align-content:start"><h3>A correct answer to this question must</h3><ul class="checklist">${a.expect.map(x => `<li>${x}</li>`).join("")}</ul></div>
+    ${a.warn ? `<div class="note fail"><b>This question exposes a gap.</b> ${a.warn}</div>` : `<div class="note">The automatic grader checks citations, yes/no, numbers, and phrases like “not found”. A person still reads every saved answer in <code>eval/results/</code>.</div>`}
+  </div>
+  <div style="display:grid;gap:10px">
+    <h3>Control suite: retrieval mode (free, deterministic)</h3>
+    <div class="evsum">
+      <div><span class="lbl">Retrieval controls passed</span><span class="val ${pass === ev.length ? "ok" : "bad"}">${pass} / ${ev.length}</span></div>
+      <div><span class="lbl">Positive controls</span><span class="val">${ev.filter(e => e.polarity === "positive" && e.pass).length} / ${ev.filter(e => e.polarity === "positive").length}</span></div>
+      <div><span class="lbl">Negative controls</span><span class="val">${ev.filter(e => e.polarity === "negative" && e.pass).length} / ${ev.filter(e => e.polarity === "negative").length}</span></div>
+      <div><span class="lbl">LLM-mode controls</span><span class="val">not run</span></div>
+    </div>
+    <div class="scroll-x"><table><thead><tr><th>Control</th><th>Type</th><th class="num">Passed</th><th>What a correct system does</th></tr></thead><tbody>
+      ${rows.map(r => `<tr class="${r.ok < r.n ? "failrow" : ""}"><td class="mono">${r.t}</td><td><span class="pill ${r.pol === "positive" ? "pos" : "neg"}">${r.pol}</span></td><td class="num">${r.ok}/${r.n}</td><td>${CONTROL_DESC[r.t] || ""}</td></tr>`).join("")}
+    </tbody></table></div>
+    <label class="toggle"><input type="checkbox" id="showall"> Show all ${ev.length} control questions</label>
+    <div id="allev" hidden class="scroll-x"><table><thead><tr><th></th><th>ID</th><th>Question</th><th>Linked concepts</th></tr></thead><tbody>
+      ${ev.map(e => `<tr class="${e.pass ? "" : "failrow"}"><td><span class="pill ${e.pass ? "pass" : "fail"}">${e.pass ? "PASS" : "FAIL"}</span></td><td class="mono">${e.id}</td><td>${esc(e.question.replace(/\b([0-9a-f]{8})-[0-9a-f-]{27}\b/gi, "$1…"))}</td><td>${e.linked_concepts.map(c => `<span class="nid mono">${c}</span>`).join(" ") || "—"}</td></tr>`).join("")}
+    </tbody></table></div>
+  </div>
+  <div class="note"><b>Gaps found while building this demo.</b> The controls measure recall, so they miss over-linking: extra, wrong facts. The <i>disorders</i> bug and the dropped “(finding)” tag both slipped through. The next control to add is a precision check that asserts which concepts must <i>not</i> be linked or cited.</div>`;
+}
+const CONTROL_DESC = {
+  active_conditions: "Retrieves every active disorder of a patient",
+  medication_reason: "Finds why a patient takes a given drug",
+  allergy_yes: "Confirms a recorded allergy",
+  cohort_count: "Reports the exact number of patients with a condition",
+  treatments: "Lists every drug documented as treating a condition",
+  unknown_patient: "States that a made-up patient ID does not exist",
+  absent_condition: "States that a real patient has no record of a condition",
+  fake_concept: "Links nothing for an invented disease name",
+};
+
+const after = { 4: drawGraph, 6: el => { const c = el.querySelector("#showall"); c.onchange = () => el.querySelector("#allev").hidden = !c.checked; } };
+document.getElementById("rundate").textContent = D.run_date;
+document.getElementById("modeltag").textContent = "answer model: " + D.model;
+render();
+</script>
